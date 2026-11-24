@@ -1,0 +1,483 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: c1aada8e8c1440bc8a3742cdb50a3d7f
+      name: 'Templates/Network devices'
+  templates:
+    - uuid: 35d84a3e09204e11ae4de938461de3d4
+      template: 'HP ProCurve Aruba 3810M SNMP - Stack'
+      name: 'HP ProCurve Aruba 3810M SNMP (Stack)'
+      description: |
+        Custom template for a STACKED HP ProCurve / Aruba 3810M deployment (Aruba Backplane
+        Stacking, multiple members) using the ArubaOS-Switch / hpicfSwitch MIB family.
+        Covers: system info, ICMP + SNMP availability, per-member CPU utilization (discovery-based),
+        per-slot memory, firmware/serial change detection, interface traffic + link status, and
+        fan/PSU/temperature sensor status discovery via the HP-ICF / STATISTICS / NETSWITCH private MIBs.
+
+        Differences from the standalone template:
+        - CPU utilization is discovered per member/index via "CPU discovery (stack members)"
+          instead of a single fixed OID, so it should scale to however many entries the stack
+          exposes under hpSwitchCpuStat. Verify with an snmpwalk on your stack; if only one
+          entry comes back (commander only), you may need to adjust the discovery OID.
+        - Memory discovery (hpLocalMemTable) already returns one entry per slot on stacked
+          units, so it is unchanged from the standalone template.
+
+        Use this template for a stacked deployment. For a single, non-stacked 3810M unit, use
+        "HP ProCurve Aruba 3810M SNMP" instead.
+
+        Before importing:
+        - Make sure the host has an SNMP interface configured with the correct community/version.
+        - Sensor discovery filters on text found in hpicfSensorDescr ("Fan", "Power", "Temp").
+          If your firmware phrases these differently, edit the discovery rule filter regex after import.
+        - Run snmpwalk against 1.3.6.1.4.1.11.2.14.11.1.2.6.1.7 first to confirm sensor description text.
+        - Run snmpwalk against 1.3.6.1.4.1.11.2.14.11.5.1.9.6.1 to confirm how CPU stats are indexed on your stack.
+        Tested against Zabbix 7.4.
+      groups:
+        - name: 'Templates/Network devices'
+      items:
+        - uuid: d3817e74ec5f4260b8bce8a973649084
+          name: 'System description'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.1.0'
+          key: system.descr
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'sysDescr.0'
+        - uuid: 517bac1ec13b46228ff002d18b69459f
+          name: 'System name'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.5.0'
+          key: system.name
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'sysName.0'
+        - uuid: cebd6b58893045d5a4a0e4f50ee6799f
+          name: 'System location'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.6.0'
+          key: system.location
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'sysLocation.0'
+        - uuid: 38cbdf27db24452f9d98675434d46468
+          name: 'System contact'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.4.0'
+          key: system.contact
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'sysContact.0'
+        - uuid: f647caa5dde943c6b0498125c5d96b7f
+          name: 'System uptime'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.3.0'
+          key: system.net.uptime
+          delay: 1m
+          history: 2w
+          trends: 90d
+          value_type: UNSIGNED
+          units: uptime
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '0.01'
+          description: 'sysUpTime.0 in centiseconds, converted to seconds'
+          triggers:
+            - uuid: 7bf73aac56254d489b222daf0814d4ce
+              expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/system.net.uptime)<10m'
+              name: 'Device has been rebooted (uptime < 10m)'
+              priority: WARNING
+              manual_close: 'YES'
+        - uuid: a360365955f24f9aa218abce3dca706c
+          name: 'ICMP ping'
+          type: SIMPLE
+          key: icmpping
+          delay: 1m
+          history: 2w
+          trends: '0'
+          value_type: UNSIGNED
+          triggers:
+            - uuid: 36d081319c934b78932ec7a22a10c3dd
+              expression: 'max(/HP ProCurve Aruba 3810M SNMP - Stack/icmpping,#3)=0'
+              name: 'Unavailable by ICMP ping'
+              priority: HIGH
+        - uuid: f3ca5ae6775c4be49e261f5da31ebb97
+          name: 'ICMP loss'
+          type: SIMPLE
+          key: icmppingloss
+          delay: 1m
+          history: 2w
+          trends: 90d
+          value_type: FLOAT
+          units: '%'
+          triggers:
+            - uuid: b5d0703513944fd0810a8178045689a3
+              expression: 'min(/HP ProCurve Aruba 3810M SNMP - Stack/icmppingloss,5m)>{$ICMP_LOSS_WARN} and min(/HP ProCurve Aruba 3810M SNMP - Stack/icmppingloss,5m)<100'
+              name: 'ICMP packet loss detected'
+              priority: WARNING
+        - uuid: c76d06b27da94cd9ac8391e770590783
+          name: 'ICMP response time'
+          type: SIMPLE
+          key: icmppingsec
+          delay: 1m
+          history: 2w
+          trends: 90d
+          value_type: FLOAT
+          units: s
+        - uuid: 1b06d4d509d644e188aaaaa801b1ccd5
+          name: 'SNMP agent availability'
+          type: INTERNAL
+          key: 'zabbix[host,snmp,available]'
+          delay: 1m
+          history: 2w
+          trends: 90d
+          value_type: UNSIGNED
+          description: '0 = not available, 1 = available'
+          triggers:
+            - uuid: 5d3a993188424adbb24c7ab37cb22eba
+              expression: 'max(/HP ProCurve Aruba 3810M SNMP - Stack/zabbix[host,snmp,available],15m)=0'
+              name: 'SNMP is not available for polling'
+              priority: WARNING
+              description: 'Last attempts returned timeout. Check device connectivity and SNMP settings.'
+        - uuid: 97a6eb26b83f40bf9daf580cc6ee1e27
+          name: 'Firmware version'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.11.2.14.11.5.1.1.3.0'
+          key: system.hw.firmware
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'MIB: NETSWITCH-MIB'
+          triggers:
+            - uuid: 414957f5956f4740a98283eaadf0094f
+              expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.firmware,#1)<>last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.firmware,#2) and length(last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.firmware))>0'
+              name: 'Firmware version has changed'
+              priority: INFO
+              manual_close: 'YES'
+        - uuid: e6cb08fff22e4e03b38c963b7ccd63ba
+          name: 'Hardware serial number'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.11.2.36.1.1.2.9.0'
+          key: system.hw.serialnumber
+          delay: 1h
+          history: 2w
+          trends: '0'
+          value_type: CHAR
+          description: 'MIB: SEMI-MIB'
+          triggers:
+            - uuid: 5d4e5e103727493f9be091f829d912f0
+              expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.serialnumber,#1)<>last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.serialnumber,#2) and length(last(/HP ProCurve Aruba 3810M SNMP - Stack/system.hw.serialnumber))>0'
+              name: 'Device serial number has changed (possible hardware swap)'
+              priority: INFO
+              manual_close: 'YES'
+      discovery_rules:
+        - uuid: 6d13be82109e4342a8925f1114edf162
+          name: 'Interface discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IFNAME},1.3.6.1.2.1.2.2.1.2]'
+          key: net.if.discovery
+          delay: 1h
+          filter:
+            evaltype: AND_OR
+            conditions:
+              - macro: '{#IFNAME}'
+                value: '{$NET.IF.IFNAME.NOT_MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: A
+          item_prototypes:
+            - uuid: fe639cca02a54b8da25063a8bca99139
+              name: 'Interface {#IFNAME}: Operational status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.8.{#SNMPINDEX}'
+              key: 'net.if.status[ifOperStatus.{#SNMPINDEX}]'
+              delay: 1m
+              history: 2w
+              trends: '0'
+              value_type: UNSIGNED
+              valuemap:
+                name: 'Interface status'
+              trigger_prototypes:
+                - uuid: 983dc01b0a324798b456b5b76234cb5f
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/net.if.status[ifOperStatus.{#SNMPINDEX}])=2'
+                  name: 'Interface {#IFNAME}: Link down'
+                  priority: WARNING
+                  manual_close: 'YES'
+            - uuid: a04cf5b2ba3744fabf19babd0d9e557a
+              name: 'Interface {#IFNAME}: Bits received'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.6.{#SNMPINDEX}'
+              key: 'net.if.in[ifHCInOctets.{#SNMPINDEX}]'
+              delay: 1m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: bps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters: []
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+            - uuid: 711788eaf6b84e119b0e5324137187f6
+              name: 'Interface {#IFNAME}: Bits sent'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.10.{#SNMPINDEX}'
+              key: 'net.if.out[ifHCOutOctets.{#SNMPINDEX}]'
+              delay: 1m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: bps
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters: []
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+        - uuid: fc40a5b43be140ffb7ee7877705786b9
+          name: 'Memory discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SNMPVALUE},1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.1]'
+          key: memory.discovery
+          delay: 1h
+          description: 'Discovery of NETSWITCH-MIB::hpLocalMemTable, one entry per slot/CPU'
+          item_prototypes:
+            - uuid: adb48119a108421ca23ce25a09adc672
+              name: 'Memory total (slot {#SNMPINDEX})'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.5.{#SNMPINDEX}'
+              key: 'vm.memory.total[hpLocalMemTotalBytes.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: B
+            - uuid: 9421aca3150b489bbff022ae716122c5
+              name: 'Memory free (slot {#SNMPINDEX})'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.6.{#SNMPINDEX}'
+              key: 'vm.memory.free[hpLocalMemFreeBytes.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: B
+            - uuid: 3c4ee7e1bae34553be5d927609fec681
+              name: 'Memory used (slot {#SNMPINDEX})'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.5.1.1.2.1.1.1.7.{#SNMPINDEX}'
+              key: 'vm.memory.used[hpLocalMemAllocBytes.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: B
+            - uuid: 0bb62f51ea374620920ca5786a516dbe
+              name: 'Memory utilization (slot {#SNMPINDEX})'
+              type: CALCULATED
+              key: 'vm.memory.util[snmp.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: 90d
+              value_type: FLOAT
+              units: '%'
+              params: 'last(//vm.memory.used[hpLocalMemAllocBytes.{#SNMPINDEX}])/last(//vm.memory.total[hpLocalMemTotalBytes.{#SNMPINDEX}])*100'
+              trigger_prototypes:
+                - uuid: 5b93a66645cf452fb2ad32b426104885
+                  expression: 'min(/HP ProCurve Aruba 3810M SNMP - Stack/vm.memory.util[snmp.{#SNMPINDEX}],5m)>{$MEMORY.UTIL.MAX}'
+                  name: 'High memory utilization on slot {#SNMPINDEX} (>{$MEMORY.UTIL.MAX}%)'
+                  priority: AVERAGE
+        - uuid: 548a030eb1be468c9fd6f07313b6c8c9
+          name: 'CPU discovery (stack members)'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SNMPVALUE},1.3.6.1.4.1.11.2.14.11.5.1.9.6.1]'
+          key: cpu.discovery
+          delay: 1h
+          description: >-
+            Walks hpSwitchCpuStat (STATISTICS-MIB). On a standalone 3810M this
+            returns a single entry (index 0). On a stacked 3810M, if the firmware
+            exposes CPU utilization per stack member under this branch, one entry
+            per member is discovered. If your stack only returns one value
+            (commander only), confirm the correct per-member OID with an snmpwalk
+            and adjust this rule's OID accordingly.
+          item_prototypes:
+            - uuid: 2c6bfb4983fc43e1a3ad7d3380c7b281
+              name: 'CPU utilization (member {#SNMPINDEX})'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.5.1.9.6.1.{#SNMPINDEX}'
+              key: 'system.cpu.util[hpSwitchCpuStat.{#SNMPINDEX}]'
+              delay: 1m
+              history: 2w
+              trends: 90d
+              value_type: UNSIGNED
+              units: '%'
+              description: 'hpSwitchCpuStat.{#SNMPINDEX} - MIB: STATISTICS-MIB'
+              trigger_prototypes:
+                - uuid: 1a1fbabda4594198aa5e7e03b7c7072b
+                  expression: 'avg(/HP ProCurve Aruba 3810M SNMP - Stack/system.cpu.util[hpSwitchCpuStat.{#SNMPINDEX}],5m)>{$CPU_UTIL_MAX}'
+                  name: 'High CPU utilization on member {#SNMPINDEX} (>{$CPU_UTIL_MAX}% for 5m)'
+                  priority: AVERAGE
+        - uuid: 01e741e55c16408a83f7b61ae13b87d6
+          name: 'Fan sensor discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SENSOR_DESCR},1.3.6.1.4.1.11.2.14.11.1.2.6.1.7]'
+          key: fan.discovery
+          delay: 1h
+          description: 'Discovers hpicfSensorTable entries whose description matches Fan'
+          filter:
+            evaltype: AND_OR
+            conditions:
+              - macro: '{#SENSOR_DESCR}'
+                value: '.*[Ff]an.*'
+                operator: MATCHES_REGEX
+                formulaid: A
+          item_prototypes:
+            - uuid: e563543e928e4832b847465b5e70b116
+              name: '{#SENSOR_DESCR}: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.{#SNMPINDEX}'
+              key: 'sensor.fan.status[hpicfSensorStatus.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: '0'
+              value_type: UNSIGNED
+              valuemap:
+                name: 'HP sensor status'
+              trigger_prototypes:
+                - uuid: 23019cb96c2042a59ade1c5bbdf1d066
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.fan.status[hpicfSensorStatus.{#SNMPINDEX}])=3'
+                  name: '{#SENSOR_DESCR}: Warning state'
+                  priority: WARNING
+                  manual_close: 'YES'
+                - uuid: 4bed8986273842ed875c7d00e9b71577
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.fan.status[hpicfSensorStatus.{#SNMPINDEX}])=2'
+                  name: '{#SENSOR_DESCR}: Critical / bad state'
+                  priority: HIGH
+                  manual_close: 'YES'
+        - uuid: 21331ff81438447192c15635044a7d15
+          name: 'Power supply sensor discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SENSOR_DESCR},1.3.6.1.4.1.11.2.14.11.1.2.6.1.7]'
+          key: psu.discovery
+          delay: 1h
+          description: 'Discovers hpicfSensorTable entries whose description matches Power Supply'
+          filter:
+            evaltype: AND_OR
+            conditions:
+              - macro: '{#SENSOR_DESCR}'
+                value: '.*[Pp]ower.*[Ss]upply.*'
+                operator: MATCHES_REGEX
+                formulaid: A
+          item_prototypes:
+            - uuid: a0ef5b1bbda4498bbdf1955dd4e2a1e9
+              name: '{#SENSOR_DESCR}: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.{#SNMPINDEX}'
+              key: 'sensor.psu.status[hpicfSensorStatus.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: '0'
+              value_type: UNSIGNED
+              valuemap:
+                name: 'HP sensor status'
+              trigger_prototypes:
+                - uuid: b64b98936ae748348e894e18d8924199
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.psu.status[hpicfSensorStatus.{#SNMPINDEX}])=3'
+                  name: '{#SENSOR_DESCR}: Warning state'
+                  priority: WARNING
+                  manual_close: 'YES'
+                - uuid: fb01b02fb12b4c31905f0c224924151e
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.psu.status[hpicfSensorStatus.{#SNMPINDEX}])=2'
+                  name: '{#SENSOR_DESCR}: Critical / bad state'
+                  priority: HIGH
+                  manual_close: 'YES'
+        - uuid: c49cdd15a906414186cd60894bc021ad
+          name: 'Temperature sensor discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#SENSOR_DESCR},1.3.6.1.4.1.11.2.14.11.1.2.6.1.7]'
+          key: temp.discovery
+          delay: 1h
+          description: 'Discovers hpicfSensorTable entries whose description matches Temp'
+          filter:
+            evaltype: AND_OR
+            conditions:
+              - macro: '{#SENSOR_DESCR}'
+                value: '.*[Tt]emp.*'
+                operator: MATCHES_REGEX
+                formulaid: A
+          item_prototypes:
+            - uuid: 19d2a69bc658411690f5558784c56675
+              name: '{#SENSOR_DESCR}: Status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.{#SNMPINDEX}'
+              key: 'sensor.temp.status[hpicfSensorStatus.{#SNMPINDEX}]'
+              delay: 5m
+              history: 2w
+              trends: '0'
+              value_type: UNSIGNED
+              valuemap:
+                name: 'HP sensor status'
+              trigger_prototypes:
+                - uuid: c6b31d31a8a14b3593f6a5fcbe7342a7
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.temp.status[hpicfSensorStatus.{#SNMPINDEX}])=3'
+                  name: '{#SENSOR_DESCR}: Warning state'
+                  priority: WARNING
+                  manual_close: 'YES'
+                - uuid: 8e320248a2ae423aaa1c55c24d5fe88e
+                  expression: 'last(/HP ProCurve Aruba 3810M SNMP - Stack/sensor.temp.status[hpicfSensorStatus.{#SNMPINDEX}])=2'
+                  name: '{#SENSOR_DESCR}: Critical / over-temperature state'
+                  priority: HIGH
+                  manual_close: 'YES'
+      macros:
+        - macro: '{$CPU_UTIL_MAX}'
+          value: '90'
+          description: 'CPU utilization percentage that triggers a warning'
+        - macro: '{$MEMORY.UTIL.MAX}'
+          value: '90'
+          description: 'Memory utilization percentage that triggers a warning'
+        - macro: '{$ICMP_LOSS_WARN}'
+          value: '20'
+          description: 'ICMP packet loss percentage that triggers a warning'
+        - macro: '{$NET.IF.IFNAME.NOT_MATCHES}'
+          value: '^$'
+          description: 'Interfaces matching this regex are excluded from discovery. Default excludes nothing.'
+      valuemaps:
+        - uuid: 8961412f7fa94a708d52b562b35dece2
+          name: 'Interface status'
+          mappings:
+            - value: '1'
+              newvalue: up
+            - value: '2'
+              newvalue: down
+            - value: '3'
+              newvalue: testing
+            - value: '4'
+              newvalue: unknown
+            - value: '5'
+              newvalue: dormant
+            - value: '6'
+              newvalue: notPresent
+            - value: '7'
+              newvalue: lowerLayerDown
+        - uuid: 1a2e007f3ac44c70b05e2e66339242f9
+          name: 'HP sensor status'
+          mappings:
+            - value: '1'
+              newvalue: unknown
+            - value: '2'
+              newvalue: bad
+            - value: '3'
+              newvalue: warning
+            - value: '4'
+              newvalue: good
+            - value: '5'
+              newvalue: notPresent

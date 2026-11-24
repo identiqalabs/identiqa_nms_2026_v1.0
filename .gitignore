@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local configuration and secrets — use the .env.example files as templates
+.env
+.env.*
+!.env.example
+
+# Logs and runtime output
+*.log
+logs/
+stack/backups/
+stack/modules/
+
+# Build output
+build/
+dist/
+*.zip
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

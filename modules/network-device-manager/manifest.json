@@ -1,0 +1,30 @@
+{
+    "manifest_version": 2.0,
+    "id": "network_device_manager",
+    "name": "Network Device Manager",
+    "version": "1.0.0",
+    "namespace": "NetworkDeviceManager",
+    "author": "Identiqa Labs",
+    "description": "Manage discovered network devices and open interactive terminal sessions directly inside Zabbix UI.",
+    "actions": {
+        "networkdev.view": {
+            "class": "NetworkDevViewAction",
+            "layout": "layout.htmlpage",
+            "view": "networkdev.view"
+        },
+        "networkdev.add": {
+            "class": "NetworkDevAddAction",
+            "layout": "layout.htmlpage",
+            "view": "networkdev.add"
+        },
+        "networkdev.terminal": {
+            "class": "NetworkDevTerminalAction",
+            "layout": "layout.htmlpage",
+            "view": "networkdev.terminal"
+        },
+        "networkdev.terminal.bridge": {
+            "class": "NetworkDevTerminalBridgeAction",
+            "layout": "layout.json"
+        }
+    }
+}

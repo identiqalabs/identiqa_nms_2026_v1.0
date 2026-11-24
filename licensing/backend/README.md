@@ -1,0 +1,88 @@
+# License Backend (NMS v0.1)
+
+License service for Identiqa NMS. It issues and validates license keys, and
+records monitoring usage (host count and NMS version) reported by deployed
+Zabbix instances.
+
+It runs in two modes:
+
+- **AWS Lambda** (`lambda.js`) — production; routes mounted under `/backend_api`
+- **Standalone Express server** (`server.js`) — local development; routes mounted under `/api`
+
+## Tech stack
+
+Node.js (ES modules) · Express 5 · MongoDB (Mongoose) · `@codegenie/serverless-express` · HMAC-SHA256 license keys
+
+## API
+
+Paths are relative to `/backend_api` (Lambda) or `/api` (local server).
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/check-license/:licenseKey` | Check whether a license key is valid |
+| `POST` | `/check-license` | Check a license (key/instance ID in the request body) |
+| `POST` | `/check-license/usage` | Agent reports host count and NMS version for an instance |
+| `POST` | `/generate-license` | Create a new license |
+| `GET` | `/all-licenses` | List all licenses |
+| `PUT` | `/update-license/:licenseKey` | Update a license |
+| `DELETE` | `/delete-license/:licenseKey` | Delete a license |
+| `POST` | `/sync-monitoring-now` | Sync usage data from the `NMS_monitoring.NMS_info` collection right away |
+
+A background job (`src/jobs/monitoringSync.js`) also syncs usage data on a schedule.
+
+### License model
+
+Each license has a `licenseKey`, an `instanceId`, client details, `licenseType`
+(`trial` / `paid` / `perpetual`), `status` (`active` / `inactive` / `expired`),
+`expiryDate`, and the latest reported usage. See `src/models/License.js`.
+
+## Configuration
+
+Create a `.env` file (already in `.gitignore`):
+
+| Variable | Description |
+|---|---|
+| `MONGO_URI` | MongoDB connection string |
+| `HMAC_SECRET` | Secret used to sign license keys. Keep it private; changing it invalidates existing keys |
+| `PORT` | Local server port (default `4000`) |
+
+## Running locally
+
+```bash
+npm install
+npm run dev      # nodemon server.js
+# or
+npm start
+```
+
+```bash
+curl http://localhost:4000/api/check-license/<LICENSE_KEY>
+```
+
+## Deploying to AWS Lambda
+
+```bash
+npm install --omit=dev
+npm run build    # creates function.zip
+```
+
+Upload `function.zip` to the Lambda function, set the handler to
+`lambda.handler`, and set `MONGO_URI` and `HMAC_SECRET` as environment variables.
+The function is exposed through a Lambda Function URL.
+
+## Project layout
+
+```
+lambda.js                         Lambda entry point
+server.js                         Local Express entry point
+src/routes/licenseRoutes.js       Route definitions
+src/controllers/licenseController.js
+src/models/License.js
+src/jobs/monitoringSync.js        Usage sync job
+```
+
+## Security notes
+
+- The admin endpoints (`generate`, `update`, `delete`, `all-licenses`) have no
+  authentication in the code. Restrict access to them before exposing the service publicly.
+- `server.js` logs `MONGO_URI` at startup. Avoid that in shared logs.
